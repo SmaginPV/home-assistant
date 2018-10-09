@@ -1,18 +1,17 @@
-"""Support for Rflink sensors.
+"""
+Support for Rflink sensors.
 
-For more details about this platform, please refer to the documentation
-at https://home-assistant.io/components/light.rflink/
-
+For more details about this platform, please refer to the documentation at
+https://home-assistant.io/components/light.rflink/
 """
 import asyncio
 from functools import partial
 import logging
 
-from homeassistant.components import group
 from homeassistant.components.rflink import (
-    CONF_ALIASSES, CONF_DEVICES, CONF_NEW_DEVICES_GROUP, DATA_DEVICE_REGISTER,
-    DATA_ENTITY_LOOKUP, DOMAIN, EVENT_KEY_ID, EVENT_KEY_SENSOR, EVENT_KEY_UNIT,
-    RflinkDevice, cv, vol)
+    CONF_ALIASES, CONF_ALIASSES, CONF_AUTOMATIC_ADD, CONF_DEVICES,
+    DATA_DEVICE_REGISTER, DATA_ENTITY_LOOKUP, DOMAIN, EVENT_KEY_ID,
+    EVENT_KEY_SENSOR, EVENT_KEY_UNIT, RflinkDevice, cv, remove_deprecated, vol)
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT, CONF_NAME, CONF_PLATFORM,
     CONF_UNIT_OF_MEASUREMENT)
@@ -31,13 +30,16 @@ CONF_SENSOR_TYPE = 'sensor_type'
 
 PLATFORM_SCHEMA = vol.Schema({
     vol.Required(CONF_PLATFORM): DOMAIN,
-    vol.Optional(CONF_NEW_DEVICES_GROUP, default=None): cv.string,
+    vol.Optional(CONF_AUTOMATIC_ADD, default=True): cv.boolean,
     vol.Optional(CONF_DEVICES, default={}): vol.Schema({
         cv.string: {
             vol.Optional(CONF_NAME): cv.string,
             vol.Required(CONF_SENSOR_TYPE): cv.string,
-            vol.Optional(CONF_UNIT_OF_MEASUREMENT, default=None): cv.string,
-            vol.Optional(CONF_ALIASSES, default=[]):
+            vol.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
+            vol.Optional(CONF_ALIASES, default=[]):
+                vol.All(cv.ensure_list, [cv.string]),
+            # deprecated config options
+            vol.Optional(CONF_ALIASSES):
                 vol.All(cv.ensure_list, [cv.string]),
         },
     }),
@@ -48,7 +50,6 @@ def lookup_unit_for_sensor_type(sensor_type):
     """Get unit for sensor type.
 
     Async friendly.
-
     """
     from rflink.parser import UNITS, PACKET_FIELDS
     field_abbrev = {v: k for k, v in PACKET_FIELDS.items()}
@@ -57,33 +58,27 @@ def lookup_unit_for_sensor_type(sensor_type):
 
 
 def devices_from_config(domain_config, hass=None):
-    """Parse config and add rflink sensor devices."""
+    """Parse configuration and add Rflink sensor devices."""
     devices = []
     for device_id, config in domain_config[CONF_DEVICES].items():
-        if not config[ATTR_UNIT_OF_MEASUREMENT]:
+        if ATTR_UNIT_OF_MEASUREMENT not in config:
             config[ATTR_UNIT_OF_MEASUREMENT] = lookup_unit_for_sensor_type(
                 config[CONF_SENSOR_TYPE])
+        remove_deprecated(config)
         device = RflinkSensor(device_id, hass, **config)
         devices.append(device)
 
-        # register entity to listen to incoming rflink events
+        # Register entity to listen to incoming rflink events
         hass.data[DATA_ENTITY_LOOKUP][
             EVENT_KEY_SENSOR][device_id].append(device)
     return devices
 
 
 @asyncio.coroutine
-def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
-    """Setup the Rflink platform."""
-    # add devices from config
-    yield from async_add_devices(devices_from_config(config, hass))
-
-    # add new (unconfigured) devices to user desired group
-    if config[CONF_NEW_DEVICES_GROUP]:
-        new_devices_group = yield from group.Group.async_create_group(
-            hass, config[CONF_NEW_DEVICES_GROUP], [], True)
-    else:
-        new_devices_group = None
+def async_setup_platform(hass, config, async_add_entities,
+                         discovery_info=None):
+    """Set up the Rflink platform."""
+    async_add_entities(devices_from_config(config, hass))
 
     @asyncio.coroutine
     def add_new_device(event):
@@ -92,29 +87,25 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
 
         rflinksensor = partial(RflinkSensor, device_id, hass)
         device = rflinksensor(event[EVENT_KEY_SENSOR], event[EVENT_KEY_UNIT])
-        # add device entity
-        yield from async_add_devices([device])
+        # Add device entity
+        async_add_entities([device])
 
-        # register entity to listen to incoming rflink events
+        # Register entity to listen to incoming rflink events
         hass.data[DATA_ENTITY_LOOKUP][
             EVENT_KEY_SENSOR][device_id].append(device)
 
-        # make sure the event is processed by the new entity
-        device.handle_event(event)
+        # Schedule task to process event after entity is created
+        hass.async_add_job(device.handle_event, event)
 
-        # maybe add to new devices group
-        if new_devices_group:
-            yield from new_devices_group.async_update_tracked_entity_ids(
-                list(new_devices_group.tracking) + [device.entity_id])
-
-    hass.data[DATA_DEVICE_REGISTER][EVENT_KEY_SENSOR] = add_new_device
+    if config[CONF_AUTOMATIC_ADD]:
+        hass.data[DATA_DEVICE_REGISTER][EVENT_KEY_SENSOR] = add_new_device
 
 
 class RflinkSensor(RflinkDevice):
     """Representation of a Rflink sensor."""
 
-    def __init__(self, device_id, hass, sensor_type,
-                 unit_of_measurement, **kwargs):
+    def __init__(self, device_id, hass, sensor_type, unit_of_measurement,
+                 **kwargs):
         """Handle sensor specific args and super init."""
         self._sensor_type = sensor_type
         self._unit_of_measurement = unit_of_measurement

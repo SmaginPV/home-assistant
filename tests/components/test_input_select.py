@@ -1,10 +1,12 @@
 """The tests for the Input select component."""
 # pylint: disable=protected-access
+import asyncio
 import unittest
 
-from tests.common import get_test_home_assistant
+from tests.common import get_test_home_assistant, mock_restore_cache
 
-from homeassistant.bootstrap import setup_component
+from homeassistant.core import State, Context
+from homeassistant.setup import setup_component, async_setup_component
 from homeassistant.components.input_select import (
     ATTR_OPTIONS, DOMAIN, SERVICE_SET_OPTIONS,
     select_option, select_next, select_previous)
@@ -17,7 +19,7 @@ class TestInputSelect(unittest.TestCase):
 
     # pylint: disable=invalid-name
     def setUp(self):
-        """Setup things to be run when tests are started."""
+        """Set up things to be run when tests are started."""
         self.hass = get_test_home_assistant()
 
     # pylint: disable=invalid-name
@@ -211,3 +213,93 @@ class TestInputSelect(unittest.TestCase):
         self.hass.block_till_done()
         state = self.hass.states.get(entity_id)
         self.assertEqual('test2', state.state)
+
+
+@asyncio.coroutine
+def test_restore_state(hass):
+    """Ensure states are restored on startup."""
+    mock_restore_cache(hass, (
+        State('input_select.s1', 'last option'),
+        State('input_select.s2', 'bad option'),
+    ))
+
+    options = {
+        'options': [
+            'first option',
+            'middle option',
+            'last option',
+        ],
+    }
+
+    yield from async_setup_component(hass, DOMAIN, {
+        DOMAIN: {
+            's1': options,
+            's2': options,
+        }})
+
+    state = hass.states.get('input_select.s1')
+    assert state
+    assert state.state == 'last option'
+
+    state = hass.states.get('input_select.s2')
+    assert state
+    assert state.state == 'first option'
+
+
+@asyncio.coroutine
+def test_initial_state_overrules_restore_state(hass):
+    """Ensure states are restored on startup."""
+    mock_restore_cache(hass, (
+        State('input_select.s1', 'last option'),
+        State('input_select.s2', 'bad option'),
+    ))
+
+    options = {
+        'options': [
+            'first option',
+            'middle option',
+            'last option',
+        ],
+        'initial': 'middle option',
+    }
+
+    yield from async_setup_component(hass, DOMAIN, {
+        DOMAIN: {
+            's1': options,
+            's2': options,
+        }})
+
+    state = hass.states.get('input_select.s1')
+    assert state
+    assert state.state == 'middle option'
+
+    state = hass.states.get('input_select.s2')
+    assert state
+    assert state.state == 'middle option'
+
+
+async def test_input_select_context(hass):
+    """Test that input_select context works."""
+    assert await async_setup_component(hass, 'input_select', {
+        'input_select': {
+            's1': {
+                'options': [
+                    'first option',
+                    'middle option',
+                    'last option',
+                ],
+            }
+        }
+    })
+
+    state = hass.states.get('input_select.s1')
+    assert state is not None
+
+    await hass.services.async_call('input_select', 'select_next', {
+        'entity_id': state.entity_id,
+    }, True, Context(user_id='abcd'))
+
+    state2 = hass.states.get('input_select.s1')
+    assert state2 is not None
+    assert state.state != state2.state
+    assert state2.context.user_id == 'abcd'

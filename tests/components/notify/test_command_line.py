@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from homeassistant.bootstrap import setup_component
+from homeassistant.setup import setup_component
 import homeassistant.components.notify as notify
 from tests.common import assert_setup_component, get_test_home_assistant
 
@@ -13,7 +13,7 @@ class TestCommandLine(unittest.TestCase):
     """Test the command line notifications."""
 
     def setUp(self):  # pylint: disable=invalid-name
-        """Setup things to be run when tests are started."""
+        """Set up things to be run when tests are started."""
         self.hass = get_test_home_assistant()
 
     def tearDown(self):  # pylint: disable=invalid-name
@@ -63,9 +63,9 @@ class TestCommandLine(unittest.TestCase):
                                         blocking=True)
             )
 
-            result = open(filename).read()
-            # the echo command adds a line break
-            self.assertEqual(result, "{}\n".format(message))
+            with open(filename) as fil:
+                # the echo command adds a line break
+                self.assertEqual(fil.read(), "{}\n".format(message))
 
     @patch('homeassistant.components.notify.command_line._LOGGER.error')
     def test_error_for_none_zero_exit_code(self, mock_error):

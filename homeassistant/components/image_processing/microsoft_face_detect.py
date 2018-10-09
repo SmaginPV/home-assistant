@@ -1,7 +1,7 @@
 """
-Component that will help set the microsoft face detect processing.
+Component that will help set the Microsoft face detect processing.
 
-For more details about this component, please refer to the documentation at
+For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/image_processing.microsoft_face_detect/
 """
 import asyncio
@@ -9,20 +9,17 @@ import logging
 
 import voluptuous as vol
 
+from homeassistant.components.image_processing import (
+    ATTR_AGE, ATTR_GENDER, ATTR_GLASSES, CONF_ENTITY_ID, CONF_NAME,
+    CONF_SOURCE, PLATFORM_SCHEMA, ImageProcessingFaceEntity)
+from homeassistant.components.microsoft_face import DATA_MICROSOFT_FACE
 from homeassistant.core import split_entity_id
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.components.microsoft_face import DATA_MICROSOFT_FACE
-from homeassistant.components.image_processing import (
-    PLATFORM_SCHEMA, CONF_SOURCE, CONF_ENTITY_ID, CONF_NAME)
-from homeassistant.components.image_processing.microsoft_face_identify import (
-    ImageProcessingFaceEntity, ATTR_GENDER, ATTR_AGE, ATTR_GLASSES)
 import homeassistant.helpers.config_validation as cv
 
 DEPENDENCIES = ['microsoft_face']
 
 _LOGGER = logging.getLogger(__name__)
-
-EVENT_IDENTIFY_FACE = 'detect_face'
 
 SUPPORTED_ATTRIBUTES = [
     ATTR_AGE,
@@ -38,7 +35,7 @@ def validate_attributes(list_attributes):
     """Validate face attributes."""
     for attr in list_attributes:
         if attr not in SUPPORTED_ATTRIBUTES:
-            raise vol.Invalid("Invalid attribtue {0}".format(attr))
+            raise vol.Invalid("Invalid attribute {0}".format(attr))
     return list_attributes
 
 
@@ -49,8 +46,9 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 
 @asyncio.coroutine
-def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
-    """Set up the microsoft face detection platform."""
+def async_setup_platform(hass, config, async_add_entities,
+                         discovery_info=None):
+    """Set up the Microsoft Face detection platform."""
     api = hass.data[DATA_MICROSOFT_FACE]
     attributes = config[CONF_ATTRIBUTES]
 
@@ -60,14 +58,14 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
             camera[CONF_ENTITY_ID], api, attributes, camera.get(CONF_NAME)
         ))
 
-    yield from async_add_devices(entities)
+    async_add_entities(entities)
 
 
 class MicrosoftFaceDetectEntity(ImageProcessingFaceEntity):
-    """Microsoft face api entity for identify."""
+    """Microsoft Face API entity for identify."""
 
     def __init__(self, camera_entity, api, attributes, name=None):
-        """Initialize openalpr local api."""
+        """Initialize Microsoft Face."""
         super().__init__()
 
         self._api = api
@@ -106,7 +104,7 @@ class MicrosoftFaceDetectEntity(ImageProcessingFaceEntity):
             _LOGGER.error("Can't process image on microsoft face: %s", err)
             return
 
-        if face_data is None or len(face_data) < 1:
+        if not face_data:
             return
 
         faces = []

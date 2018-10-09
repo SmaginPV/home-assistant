@@ -4,11 +4,9 @@ Support for monitoring an OpenEVSE Charger.
 For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/sensor.openevse/
 """
-
 import logging
 
 from requests import RequestException
-
 import voluptuous as vol
 
 import homeassistant.helpers.config_validation as cv
@@ -17,12 +15,14 @@ from homeassistant.const import TEMP_CELSIUS, CONF_HOST
 from homeassistant.const import CONF_MONITORED_VARIABLES
 from homeassistant.helpers.entity import Entity
 
-_LOGGER = logging.getLogger(__name__)
 REQUIREMENTS = ['openevsewifi==0.4']
+
+_LOGGER = logging.getLogger(__name__)
+
 SENSOR_TYPES = {
     'status': ['Charging Status', None],
     'charge_time': ['Charge Time Elapsed', 'minutes'],
-    'ambient_temp': ['Ambient Termperature', TEMP_CELSIUS],
+    'ambient_temp': ['Ambient Temperature', TEMP_CELSIUS],
     'ir_temp': ['IR Temperature', TEMP_CELSIUS],
     'rtc_temp': ['RTC Temperature', TEMP_CELSIUS],
     'usage_session': ['Usage this Session', 'kWh'],
@@ -36,8 +36,8 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 })
 
 
-def setup_platform(hass, config, add_devices, discovery_info=None):
-    """Setup the OpenEVSE sensor."""
+def setup_platform(hass, config, add_entities, discovery_info=None):
+    """Set up the OpenEVSE sensor."""
     import openevsewifi
 
     host = config.get(CONF_HOST)
@@ -49,13 +49,12 @@ def setup_platform(hass, config, add_devices, discovery_info=None):
     for variable in monitored_variables:
         dev.append(OpenEVSESensor(variable, charger))
 
-    add_devices(dev)
+    add_entities(dev, True)
 
 
 class OpenEVSESensor(Entity):
     """Implementation of an OpenEVSE sensor."""
 
-    # pylint: disable=too-many-arguments
     def __init__(self, sensor_type, charger):
         """Initialize the sensor."""
         self._name = SENSOR_TYPES[sensor_type][0]
@@ -85,7 +84,7 @@ class OpenEVSESensor(Entity):
             if self.type == 'status':
                 self._state = self.charger.getStatus()
             elif self.type == 'charge_time':
-                self._state = self.charger.getChargeTimeElapsed()/60
+                self._state = self.charger.getChargeTimeElapsed() / 60
             elif self.type == 'ambient_temp':
                 self._state = self.charger.getAmbientTemperature()
             elif self.type == 'ir_temp':
@@ -93,10 +92,10 @@ class OpenEVSESensor(Entity):
             elif self.type == 'rtc_temp':
                 self._state = self.charger.getRTCTemperature()
             elif self.type == 'usage_session':
-                self._state = float(self.charger.getUsageSession())/1000
+                self._state = float(self.charger.getUsageSession()) / 1000
             elif self.type == 'usage_total':
-                self._state = float(self.charger.getUsageTotal())/1000
+                self._state = float(self.charger.getUsageTotal()) / 1000
             else:
                 self._state = 'Unknown'
         except (RequestException, ValueError, KeyError):
-            _LOGGER.warning('Could not update status for %s', self.name)
+            _LOGGER.warning("Could not update status for %s", self.name)

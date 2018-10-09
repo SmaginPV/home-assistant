@@ -6,26 +6,22 @@ https://home-assistant.io/components/hdmi_cec/
 """
 import logging
 import multiprocessing
-import os
 from collections import defaultdict
 from functools import reduce
 
 import voluptuous as vol
 
 import homeassistant.helpers.config_validation as cv
-from homeassistant import core
-from homeassistant.components import discovery
+from homeassistant.helpers import discovery
 from homeassistant.components.media_player import DOMAIN as MEDIA_PLAYER
 from homeassistant.components.switch import DOMAIN as SWITCH
-from homeassistant.config import load_yaml_config_file
 from homeassistant.const import (EVENT_HOMEASSISTANT_START, STATE_UNKNOWN,
                                  EVENT_HOMEASSISTANT_STOP, STATE_ON,
                                  STATE_OFF, CONF_DEVICES, CONF_PLATFORM,
                                  STATE_PLAYING, STATE_IDLE,
                                  STATE_PAUSED, CONF_HOST)
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import Entity
-from homeassistant.helpers import customize
 
 REQUIREMENTS = ['pyCEC==0.4.13']
 
@@ -33,12 +29,13 @@ DOMAIN = 'hdmi_cec'
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_DISPLAY_NAME = "HomeAssistant"
+DEFAULT_DISPLAY_NAME = "HA"
+CONF_TYPES = 'types'
 
 ICON_UNKNOWN = 'mdi:help'
 ICON_AUDIO = 'mdi:speaker'
 ICON_PLAYER = 'mdi:play'
-ICON_TUNER = 'mdi:nest-thermostat'
+ICON_TUNER = 'mdi:radio'
 ICON_RECORDER = 'mdi:microphone'
 ICON_TV = 'mdi:television'
 ICONS_BY_TYPE = {
@@ -67,7 +64,6 @@ ATTR_TYPE_ID = 'type_id'
 ATTR_VENDOR_NAME = 'vendor_name'
 ATTR_VENDOR_ID = 'vendor_id'
 ATTR_DEVICE = 'device'
-ATTR_COMMAND = 'command'
 ATTR_TYPE = 'type'
 ATTR_KEY = 'key'
 ATTR_DUR = 'dur'
@@ -113,26 +109,22 @@ SERVICE_STANDBY = 'standby'
 
 # pylint: disable=unnecessary-lambda
 DEVICE_SCHEMA = vol.Schema({
-    vol.All(cv.positive_int): vol.Any(lambda devices: DEVICE_SCHEMA(devices),
-                                      cv.string)
-})
-
-CUSTOMIZE_SCHEMA = vol.Schema({
-    vol.Optional(CONF_PLATFORM, default=MEDIA_PLAYER): vol.Any(MEDIA_PLAYER,
-                                                               SWITCH)
+    vol.All(cv.positive_int):
+        vol.Any(lambda devices: DEVICE_SCHEMA(devices), cv.string)
 })
 
 CONF_DISPLAY_NAME = 'osd_name'
+
 CONFIG_SCHEMA = vol.Schema({
     DOMAIN: vol.Schema({
-        vol.Optional(CONF_DEVICES): vol.Any(DEVICE_SCHEMA,
-                                            vol.Schema({
-                                                vol.All(cv.string): vol.Any(
-                                                    cv.string)
-                                            })),
+        vol.Optional(CONF_DEVICES):
+            vol.Any(DEVICE_SCHEMA, vol.Schema({
+                vol.All(cv.string): vol.Any(cv.string)})),
         vol.Optional(CONF_PLATFORM): vol.Any(SWITCH, MEDIA_PLAYER),
         vol.Optional(CONF_HOST): cv.string,
         vol.Optional(CONF_DISPLAY_NAME): cv.string,
+        vol.Optional(CONF_TYPES, default={}):
+        vol.Schema({cv.entity_id: vol.Any(MEDIA_PLAYER, SWITCH)})
     })
 }, extra=vol.ALLOW_EXTRA)
 
@@ -159,7 +151,7 @@ def parse_mapping(mapping, parents=None):
 
 
 def setup(hass: HomeAssistant, base_config):
-    """Setup CEC capability."""
+    """Set up the CEC capability."""
     from pycec.network import HDMINetwork
     from pycec.commands import CecCommand, KeyReleaseCommand, KeyPressCommand
     from pycec.const import KEY_VOLUME_UP, KEY_VOLUME_DOWN, KEY_MUTE_ON, \
@@ -182,12 +174,12 @@ def setup(hass: HomeAssistant, base_config):
         # Create own thread if more than 1 CPU
         hass.loop if multiprocessing.cpu_count() < 2 else None)
     host = base_config[DOMAIN].get(CONF_HOST, None)
-    display_name = base_config[DOMAIN].get(CONF_DISPLAY_NAME,
-                                           DEFAULT_DISPLAY_NAME)
+    display_name = base_config[DOMAIN].get(
+        CONF_DISPLAY_NAME, DEFAULT_DISPLAY_NAME)
     if host:
         adapter = TcpAdapter(host, name=display_name, activate_source=False)
     else:
-        adapter = CecAdapter(name=display_name, activate_source=False)
+        adapter = CecAdapter(name=display_name[:12], activate_source=False)
     hdmi_network = HDMINetwork(adapter, loop=loop)
 
     def _volume(call):
@@ -254,11 +246,9 @@ def setup(hass: HomeAssistant, base_config):
             command = CecCommand(cmd, dst, src, att)
         hdmi_network.send_command(command)
 
-    @callback
     def _standby(call):
         hdmi_network.standby()
 
-    @callback
     def _power_on(call):
         hdmi_network.power_on()
 
@@ -279,7 +269,7 @@ def setup(hass: HomeAssistant, base_config):
                 addr = entity.attributes['physical_address']
                 _LOGGER.debug("Address acquired: %s", addr)
                 if addr is None:
-                    _LOGGER.error("Device %s has not physical address.",
+                    _LOGGER.error("Device %s has not physical address",
                                   call.data[ATTR_DEVICE])
                     return
         if not isinstance(addr, (PhysicalAddress,)):
@@ -289,22 +279,19 @@ def setup(hass: HomeAssistant, base_config):
 
     def _update(call):
         """
-        Callback called when device update is needed.
+        Update if device update is needed.
 
-        - called by service, requests CEC network to update data.
+        Called by service, requests CEC network to update data.
         """
         hdmi_network.scan()
 
-    @callback
     def _new_device(device):
-        """Called when new device is detected by HDMI network."""
-        key = DOMAIN + '.' + device.name
+        """Handle new devices which are detected by HDMI network."""
+        key = '{}.{}'.format(DOMAIN, device.name)
         hass.data[key] = device
+        ent_platform = base_config[DOMAIN][CONF_TYPES].get(key, platform)
         discovery.load_platform(
-            hass,
-            customize.get_overrides(hass, core.DOMAIN, key).get(
-                CONF_PLATFORM, platform),
-            DOMAIN, discovered={ATTR_NEW: [key]},
+            hass, ent_platform, DOMAIN, discovered={ATTR_NEW: [key]},
             hass_config=base_config)
 
     def _shutdown(call):
@@ -312,17 +299,12 @@ def setup(hass: HomeAssistant, base_config):
 
     def _start_cec(event):
         """Register services and start HDMI network to watch for devices."""
-        descriptions = load_yaml_config_file(
-            os.path.join(os.path.dirname(__file__), 'services.yaml'))[DOMAIN]
         hass.services.register(DOMAIN, SERVICE_SEND_COMMAND, _tx,
-                               descriptions[SERVICE_SEND_COMMAND],
                                SERVICE_SEND_COMMAND_SCHEMA)
         hass.services.register(DOMAIN, SERVICE_VOLUME, _volume,
-                               descriptions[SERVICE_VOLUME],
-                               SERVICE_VOLUME_SCHEMA)
+                               schema=SERVICE_VOLUME_SCHEMA)
         hass.services.register(DOMAIN, SERVICE_UPDATE_DEVICES, _update,
-                               descriptions[SERVICE_UPDATE_DEVICES],
-                               SERVICE_UPDATE_DEVICES_SCHEMA)
+                               schema=SERVICE_UPDATE_DEVICES_SCHEMA)
         hass.services.register(DOMAIN, SERVICE_POWER_ON, _power_on)
         hass.services.register(DOMAIN, SERVICE_STANDBY, _standby)
         hass.services.register(DOMAIN, SERVICE_SELECT_DEVICE, _select_device)
@@ -338,7 +320,7 @@ def setup(hass: HomeAssistant, base_config):
 class CecDevice(Entity):
     """Representation of a HDMI CEC device entity."""
 
-    def __init__(self, hass: HomeAssistant, device, logical):
+    def __init__(self, hass: HomeAssistant, device, logical) -> None:
         """Initialize the device."""
         self._device = device
         self.hass = hass
@@ -385,32 +367,32 @@ class CecDevice(Entity):
 
     @property
     def vendor_id(self):
-        """ID of device's vendor."""
+        """Return the ID of the device's vendor."""
         return self._device.vendor_id
 
     @property
     def vendor_name(self):
-        """Name of device's vendor."""
+        """Return the name of the device's vendor."""
         return self._device.vendor
 
     @property
     def physical_address(self):
-        """Physical address of device in HDMI network."""
+        """Return the physical address of device in HDMI network."""
         return str(self._device.physical_address)
 
     @property
     def type(self):
-        """String representation of device's type."""
+        """Return a string representation of the device's type."""
         return self._device.type_name
 
     @property
     def type_id(self):
-        """Type ID of device."""
+        """Return the type ID of device."""
         return self._device.type
 
     @property
     def icon(self):
-        """Icon for device by its type."""
+        """Return the icon for device by its type."""
         return (self._icon if self._icon is not None else
                 ICONS_BY_TYPE.get(self._device.type)
                 if self._device.type in ICONS_BY_TYPE else ICON_UNKNOWN)

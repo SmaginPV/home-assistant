@@ -3,7 +3,7 @@ from unittest.mock import patch, PropertyMock
 
 from homeassistant.core import callback
 from homeassistant.const import ATTR_ENTITY_PICTURE
-from homeassistant.bootstrap import setup_component
+from homeassistant.setup import setup_component
 import homeassistant.components.image_processing as ip
 import homeassistant.components.microsoft_face as mf
 
@@ -11,11 +11,11 @@ from tests.common import (
     get_test_home_assistant, assert_setup_component, load_fixture, mock_coro)
 
 
-class TestMicrosoftFaceIdentifySetup(object):
+class TestMicrosoftFaceIdentifySetup:
     """Test class for image processing."""
 
     def setup_method(self):
-        """Setup things to be run when tests are started."""
+        """Set up things to be run when tests are started."""
         self.hass = get_test_home_assistant()
 
     def teardown_method(self):
@@ -23,9 +23,9 @@ class TestMicrosoftFaceIdentifySetup(object):
         self.hass.stop()
 
     @patch('homeassistant.components.microsoft_face.'
-           'MicrosoftFace.update_store', return_value=mock_coro()())
+           'MicrosoftFace.update_store', return_value=mock_coro())
     def test_setup_platform(self, store_mock):
-        """Setup platform with one entity."""
+        """Set up platform with one entity."""
         config = {
             ip.DOMAIN: {
                 'platform': 'microsoft_face_identify',
@@ -49,9 +49,9 @@ class TestMicrosoftFaceIdentifySetup(object):
             'image_processing.microsoftface_demo_camera')
 
     @patch('homeassistant.components.microsoft_face.'
-           'MicrosoftFace.update_store', return_value=mock_coro()())
+           'MicrosoftFace.update_store', return_value=mock_coro())
     def test_setup_platform_name(self, store_mock):
-        """Setup platform with one entity and set name."""
+        """Set up platform with one entity and set name."""
         config = {
             ip.DOMAIN: {
                 'platform': 'microsoft_face_identify',
@@ -75,11 +75,11 @@ class TestMicrosoftFaceIdentifySetup(object):
         assert self.hass.states.get('image_processing.test_local')
 
 
-class TestMicrosoftFaceIdentify(object):
+class TestMicrosoftFaceIdentify:
     """Test class for image processing."""
 
     def setup_method(self):
-        """Setup things to be run when tests are started."""
+        """Set up things to be run when tests are started."""
         self.hass = get_test_home_assistant()
 
         self.config = {
@@ -99,6 +99,8 @@ class TestMicrosoftFaceIdentify(object):
             }
         }
 
+        self.endpoint_url = "https://westus.{0}".format(mf.FACE_API_URL)
+
     def teardown_method(self):
         """Stop everything that was started."""
         self.hass.stop()
@@ -107,17 +109,17 @@ class TestMicrosoftFaceIdentify(object):
            'MicrosoftFaceIdentifyEntity.should_poll',
            new_callable=PropertyMock(return_value=False))
     def test_ms_identify_process_image(self, poll_mock, aioclient_mock):
-        """Setup and scan a picture and test plates from event."""
+        """Set up and scan a picture and test plates from event."""
         aioclient_mock.get(
-            mf.FACE_API_URL.format("persongroups"),
+            self.endpoint_url.format("persongroups"),
             text=load_fixture('microsoft_face_persongroups.json')
         )
         aioclient_mock.get(
-            mf.FACE_API_URL.format("persongroups/test_group1/persons"),
+            self.endpoint_url.format("persongroups/test_group1/persons"),
             text=load_fixture('microsoft_face_persons.json')
         )
         aioclient_mock.get(
-            mf.FACE_API_URL.format("persongroups/test_group2/persons"),
+            self.endpoint_url.format("persongroups/test_group2/persons"),
             text=load_fixture('microsoft_face_persons.json')
         )
 
@@ -140,11 +142,11 @@ class TestMicrosoftFaceIdentify(object):
         aioclient_mock.get(url, content=b'image')
 
         aioclient_mock.post(
-            mf.FACE_API_URL.format("detect"),
+            self.endpoint_url.format("detect"),
             text=load_fixture('microsoft_face_detect.json')
         )
         aioclient_mock.post(
-            mf.FACE_API_URL.format("identify"),
+            self.endpoint_url.format("identify"),
             text=load_fixture('microsoft_face_identify.json')
         )
 

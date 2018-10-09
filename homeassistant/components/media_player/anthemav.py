@@ -4,17 +4,17 @@ Support for Anthem Network Receivers and Processors.
 For more details about this platform, please refer to the documentation at
 https://home-assistant.io/components/media_player.anthemav/
 """
-import logging
 import asyncio
+import logging
 
 import voluptuous as vol
 
 from homeassistant.components.media_player import (
-    PLATFORM_SCHEMA, SUPPORT_TURN_OFF, SUPPORT_TURN_ON, SUPPORT_SELECT_SOURCE,
+    PLATFORM_SCHEMA, SUPPORT_SELECT_SOURCE, SUPPORT_TURN_OFF, SUPPORT_TURN_ON,
     SUPPORT_VOLUME_MUTE, SUPPORT_VOLUME_SET, MediaPlayerDevice)
 from homeassistant.const import (
-    CONF_NAME, CONF_HOST, CONF_PORT, STATE_OFF, STATE_ON, STATE_UNKNOWN,
-    EVENT_HOMEASSISTANT_STOP)
+    CONF_HOST, CONF_NAME, CONF_PORT, EVENT_HOMEASSISTANT_STOP, STATE_OFF,
+    STATE_ON, STATE_UNKNOWN)
 import homeassistant.helpers.config_validation as cv
 
 REQUIREMENTS = ['anthemav==1.1.8']
@@ -32,11 +32,12 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_HOST): cv.string,
     vol.Optional(CONF_NAME): cv.string,
     vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
-    })
+})
 
 
 @asyncio.coroutine
-def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
+def async_setup_platform(hass, config, async_add_entities,
+                         discovery_info=None):
     """Set up our socket to the AVR."""
     import anthemav
 
@@ -45,11 +46,11 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     name = config.get(CONF_NAME)
     device = None
 
-    _LOGGER.info('Provisioning Anthem AVR device at %s:%d', host, port)
+    _LOGGER.info("Provisioning Anthem AVR device at %s:%d", host, port)
 
     def async_anthemav_update_callback(message):
         """Receive notification from transport that new data exists."""
-        _LOGGER.info('Received update calback from AVR: %s', message)
+        _LOGGER.info("Received update callback from AVR: %s", message)
         hass.async_add_job(device.async_update_ha_state())
 
     avr = yield from anthemav.Connection.create(
@@ -58,19 +59,19 @@ def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
 
     device = AnthemAVR(avr, name)
 
-    _LOGGER.debug('dump_devicedata: '+device.dump_avrdata)
-    _LOGGER.debug('dump_conndata: '+avr.dump_conndata)
-    _LOGGER.debug('dump_rawdata: '+avr.protocol.dump_rawdata)
+    _LOGGER.debug("dump_devicedata: %s", device.dump_avrdata)
+    _LOGGER.debug("dump_conndata: %s", avr.dump_conndata)
+    _LOGGER.debug("dump_rawdata: %s", avr.protocol.dump_rawdata)
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, device.avr.close)
-    yield from async_add_devices([device])
+    async_add_entities([device])
 
 
 class AnthemAVR(MediaPlayerDevice):
     """Entity reading values from Anthem AVR protocol."""
 
     def __init__(self, avr, name):
-        """"Initialize entity with transport."""
+        """Initialize entity with transport."""
         super().__init__()
         self.avr = avr
         self._name = name
@@ -100,10 +101,9 @@ class AnthemAVR(MediaPlayerDevice):
 
         if pwrstate is True:
             return STATE_ON
-        elif pwrstate is False:
+        if pwrstate is False:
             return STATE_OFF
-        else:
-            return STATE_UNKNOWN
+        return STATE_UNKNOWN
 
     @property
     def is_volume_muted(self):
@@ -163,7 +163,8 @@ class AnthemAVR(MediaPlayerDevice):
 
     def _update_avr(self, propname, value):
         """Update a property in the AVR."""
-        _LOGGER.info('Sending command to AVR: set '+propname+' to '+str(value))
+        _LOGGER.info(
+            "Sending command to AVR: set %s to %s", propname, str(value))
         setattr(self.avr.protocol, propname, value)
 
     @property

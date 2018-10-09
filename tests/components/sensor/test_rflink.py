@@ -8,6 +8,9 @@ automatic sensor creation.
 import asyncio
 
 from ..test_rflink import mock_rflink
+from homeassistant.components.rflink import (
+    CONF_RECONNECT_INTERVAL)
+from homeassistant.const import STATE_UNKNOWN
 
 DOMAIN = 'sensor'
 
@@ -32,7 +35,7 @@ CONFIG = {
 def test_default_setup(hass, monkeypatch):
     """Test all basic functionality of the rflink sensor component."""
     # setup mocking rflink module
-    event_callback, create, _, _ = yield from mock_rflink(
+    event_callback, create, _, disconnect_callback = yield from mock_rflink(
         hass, CONFIG, DOMAIN, monkeypatch)
 
     # make sure arguments are passed
@@ -73,15 +76,15 @@ def test_default_setup(hass, monkeypatch):
 
 
 @asyncio.coroutine
-def test_new_sensors_group(hass, monkeypatch):
-    """New devices should be added to configured group."""
+def test_disable_automatic_add(hass, monkeypatch):
+    """If disabled new devices should not be automatically added."""
     config = {
         'rflink': {
             'port': '/dev/ttyABC0',
         },
         DOMAIN: {
             'platform': 'rflink',
-            'new_devices_group': 'new_rflink_sensors',
+            'automatic_add': False,
         },
     }
 
@@ -91,13 +94,47 @@ def test_new_sensors_group(hass, monkeypatch):
 
     # test event for new unconfigured sensor
     event_callback({
-        'id': 'test',
+        'id': 'test2',
         'sensor': 'temperature',
         'value': 0,
         'unit': '°C',
     })
     yield from hass.async_block_till_done()
 
-    # make sure new device is added to correct group
-    group = hass.states.get('group.new_rflink_sensors')
-    assert group.attributes.get('entity_id') == ('sensor.test',)
+    # make sure new device is not added
+    assert not hass.states.get('sensor.test2')
+
+
+@asyncio.coroutine
+def test_entity_availability(hass, monkeypatch):
+    """If Rflink device is disconnected, entities should become unavailable."""
+    # Make sure Rflink mock does not 'recover' to quickly from the
+    # disconnect or else the unavailability cannot be measured
+    config = CONFIG
+    failures = [True, True]
+    config[CONF_RECONNECT_INTERVAL] = 60
+
+    # Create platform and entities
+    event_callback, create, _, disconnect_callback = yield from mock_rflink(
+        hass, config, DOMAIN, monkeypatch, failures=failures)
+
+    # Entities are available by default
+    assert hass.states.get('sensor.test').state == STATE_UNKNOWN
+
+    # Mock a disconnect of the Rflink device
+    disconnect_callback()
+
+    # Wait for dispatch events to propagate
+    yield from hass.async_block_till_done()
+
+    # Entity should be unavailable
+    assert hass.states.get('sensor.test').state == 'unavailable'
+
+    # Reconnect the Rflink device
+    disconnect_callback()
+
+    # Wait for dispatch events to propagate
+    yield from hass.async_block_till_done()
+
+    # Entities should be available again
+    assert hass.states.get('sensor.test').state == STATE_UNKNOWN
